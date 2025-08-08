@@ -38,7 +38,6 @@ import {
 } from "../ui/dialog";
 import {
   updateHireableStatusAction,
-  sendHireMessageAction,
   addReferenceAction,
   deleteReferenceAction,
 } from "../../app/actions";
@@ -46,6 +45,8 @@ import {
 interface UserProfileProps {
   userId: string;
   currentUserId?: string;
+  initialProfile?: Profile;
+  initialFollowStatus?: boolean;
 }
 
 interface Profile {
@@ -89,12 +90,18 @@ interface Reference {
 export default function UserProfile({
   userId,
   currentUserId,
+  initialProfile,
+  initialFollowStatus = false,
 }: UserProfileProps) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(
+    initialProfile || null,
+  );
   const [posts, setPosts] = useState<Post[]>([]);
   const [references, setReferences] = useState<Reference[]>([]);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(initialFollowStatus);
+  const [loading, setLoading] = useState(!initialProfile);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [referencesLoading, setReferencesLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("posts");
   const [hireMessage, setHireMessage] = useState("");
   const [sendingHireMessage, setSendingHireMessage] = useState(false);
@@ -111,13 +118,23 @@ export default function UserProfile({
   const supabase = createClient();
 
   useEffect(() => {
-    fetchProfile();
-    fetchPosts();
-    fetchReferences();
-    if (currentUserId && currentUserId !== userId) {
+    // Only fetch profile if not provided initially
+    if (!initialProfile) {
+      fetchProfile();
+    }
+
+    // Fetch posts and references in parallel
+    Promise.all([fetchPosts(), fetchReferences()]);
+
+    // Only check follow status if not provided initially
+    if (
+      currentUserId &&
+      currentUserId !== userId &&
+      initialFollowStatus === undefined
+    ) {
       checkFollowStatus();
     }
-  }, [userId, currentUserId]);
+  }, [userId, currentUserId, initialProfile]);
 
   const fetchProfile = async () => {
     try {
@@ -271,30 +288,22 @@ export default function UserProfile({
 
     setSendingHireMessage(true);
     try {
-      const formData = new FormData();
-      formData.append("receiverId", userId);
-      formData.append(
-        "message",
-        `Hi! I'm interested in hiring you for your services. ${hireMessage.trim()}`,
-      );
+      // Create notification for hire inquiry
+      await supabase.from("notifications").insert({
+        user_id: userId,
+        type: "hire_inquiry",
+        title: "Hire Inquiry",
+        message: `${profile?.full_name || "Someone"} is interested in hiring you: ${hireMessage.trim()}`,
+        related_user_id: currentUserId,
+      });
 
-      const result = await sendHireMessageAction(formData);
-
-      if (result.success) {
-        toast({
-          title: "Message sent!",
-          description:
-            "Your hire inquiry has been sent. They'll receive a notification.",
-        });
-        setHireMessage("");
-        setIsHireDialogOpen(false);
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to send message",
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "Message sent!",
+        description:
+          "Your hire inquiry has been sent. They'll receive a notification.",
+      });
+      setHireMessage("");
+      setIsHireDialogOpen(false);
     } catch (error) {
       console.error("Error sending hire message:", error);
       toast({
@@ -309,11 +318,24 @@ export default function UserProfile({
 
   const fetchPosts = async () => {
     try {
+      setPostsLoading(true);
       let query = supabase
         .from("posts")
-        .select("*")
+        .select(
+          `
+          id,
+          content,
+          media_url,
+          media_type,
+          skill_category,
+          likes_count,
+          comments_count,
+          created_at
+        `,
+        )
         .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(12); // Limit initial posts for faster loading
 
       // If viewing someone else's profile, only show public posts
       if (currentUserId !== userId) {
@@ -331,15 +353,28 @@ export default function UserProfile({
     } catch (error) {
       console.error("Error in fetchPosts:", error);
     } finally {
-      setLoading(false);
+      setPostsLoading(false);
     }
   };
 
   const fetchReferences = async () => {
     try {
+      setReferencesLoading(true);
       const { data, error } = await supabase
         .from("references")
-        .select("*")
+        .select(
+          `
+          id,
+          type,
+          title,
+          description,
+          url,
+          file_path,
+          file_name,
+          file_size,
+          created_at
+        `,
+        )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -351,6 +386,8 @@ export default function UserProfile({
       setReferences(data || []);
     } catch (error) {
       console.error("Error in fetchReferences:", error);
+    } finally {
+      setReferencesLoading(false);
     }
   };
 
@@ -442,12 +479,12 @@ export default function UserProfile({
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-background">
       {/* Profile Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center space-x-6">
-            <Avatar className="h-24 w-24 border-4 border-white">
+      <div className="bg-gradient-to-r from-purple-600 to-pink-600 text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row items-start md:items-center space-y-6 md:space-y-0 md:space-x-8">
+            <Avatar className="h-32 w-32 border-4 border-white shadow-lg">
               <AvatarImage
                 src={
                   profile.avatar_url ||
@@ -455,73 +492,125 @@ export default function UserProfile({
                 }
                 alt={profile.full_name || "User"}
               />
-              <AvatarFallback className="text-2xl">
+              <AvatarFallback className="text-3xl bg-white/20">
                 {(profile.full_name ||
                   profile.username ||
                   "U")[0].toUpperCase()}
               </AvatarFallback>
             </Avatar>
 
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold">
-                {profile.full_name || profile.username || "Anonymous User"}
-              </h1>
-              {profile.username && profile.full_name && (
-                <p className="text-purple-100">@{profile.username}</p>
-              )}
-              {profile.bio && (
-                <p className="mt-2 text-purple-100">{profile.bio}</p>
-              )}
+            <div className="flex-1 space-y-4">
+              <div>
+                <h1 className="text-3xl font-bold">
+                  {profile.full_name || profile.username || "Anonymous User"}
+                </h1>
+                {profile.username && profile.full_name && (
+                  <p className="text-purple-100 text-lg">@{profile.username}</p>
+                )}
+                {profile.bio && (
+                  <p className="mt-3 text-purple-100 text-lg leading-relaxed">
+                    {profile.bio}
+                  </p>
+                )}
+              </div>
 
               {/* Skill Tags */}
               {profile.skill_tags && profile.skill_tags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
+                <div className="flex flex-wrap gap-2">
                   {profile.skill_tags.map((tag, index) => (
                     <Badge
                       key={index}
                       variant="secondary"
-                      className="bg-white/20 text-white"
+                      className="bg-white/20 text-white border-white/30 hover:bg-white/30"
                     >
                       {tag}
                     </Badge>
                   ))}
                 </div>
               )}
+
+              {/* Stats Row */}
+              <div className="flex flex-wrap gap-6 text-white">
+                <div className="text-center">
+                  <div className="text-2xl font-bold">
+                    {profile.posts_count}
+                  </div>
+                  <div className="text-sm text-purple-100">Posts</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold">
+                    {profile.followers_count}
+                  </div>
+                  <div className="text-sm text-purple-100">Followers</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold">
+                    {profile.following_count}
+                  </div>
+                  <div className="text-sm text-purple-100">Following</div>
+                </div>
+                <div className="text-center flex flex-col items-center">
+                  <div className="flex items-center space-x-1">
+                    <Flame className="h-5 w-5 text-orange-300" />
+                    <div className="text-2xl font-bold">
+                      {profile.learning_streak}
+                    </div>
+                  </div>
+                  <div className="text-sm text-purple-100">Day Streak</div>
+                </div>
+                {profile.hireable && (
+                  <div className="text-center flex flex-col items-center">
+                    <div className="flex items-center space-x-1">
+                      <Briefcase className="h-5 w-5 text-green-300" />
+                      <div className="text-sm font-semibold text-green-200">
+                        Available
+                      </div>
+                    </div>
+                    <div className="text-sm text-purple-100">For Hire</div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex flex-col space-y-3">
               {/* Hireable Toggle - Only for profile owner */}
               {currentUserId && currentUserId === userId && (
-                <div className="flex items-center space-x-3 bg-white/20 rounded-lg px-4 py-2">
-                  <Briefcase className="h-5 w-5 text-white" />
-                  <Label
-                    htmlFor="hireable-toggle"
-                    className="text-white font-medium"
-                  >
-                    Available for hire
-                  </Label>
-                  <Switch
-                    id="hireable-toggle"
-                    checked={profile.hireable || false}
-                    onCheckedChange={handleHireableToggle}
-                    className="data-[state=checked]:bg-green-500"
-                  />
-                </div>
+                <Card className="bg-white/10 border-white/20">
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-3">
+                      <Briefcase className="h-5 w-5 text-white" />
+                      <Label
+                        htmlFor="hireable-toggle"
+                        className="text-white font-medium"
+                      >
+                        Available for hire
+                      </Label>
+                      <Switch
+                        id="hireable-toggle"
+                        checked={profile.hireable || false}
+                        onCheckedChange={handleHireableToggle}
+                        className="data-[state=checked]:bg-green-500"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
               )}
 
               {/* Action Buttons */}
-              <div className="flex space-x-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 {/* Follow Button */}
                 {currentUserId && currentUserId !== userId && (
                   <Button
                     onClick={handleFollow}
                     variant={isFollowing ? "outline" : "default"}
+                    size="lg"
                     className={
                       isFollowing
-                        ? "border-white text-white hover:bg-white hover:text-purple-600"
-                        : "bg-white text-purple-600 hover:bg-purple-50"
+                        ? "border-white text-white hover:bg-white hover:text-purple-600 bg-transparent"
+                        : "bg-white text-purple-600 hover:bg-purple-50 font-semibold"
                     }
                   >
+                    <Users className="h-4 w-4 mr-2" />
                     {isFollowing ? "Following" : "Follow"}
                   </Button>
                 )}
@@ -535,7 +624,10 @@ export default function UserProfile({
                       onOpenChange={setIsHireDialogOpen}
                     >
                       <DialogTrigger asChild>
-                        <Button className="bg-green-600 hover:bg-green-700 text-white">
+                        <Button
+                          size="lg"
+                          className="bg-green-600 hover:bg-green-700 text-white font-semibold"
+                        >
                           <Briefcase className="h-4 w-4 mr-2" />
                           Hire Me
                         </Button>
@@ -545,7 +637,7 @@ export default function UserProfile({
                           <DialogTitle>Send Hire Inquiry</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
-                          <p className="text-sm text-gray-600">
+                          <p className="text-sm text-muted-foreground">
                             Send a message to{" "}
                             {profile.full_name ||
                               profile.username ||
@@ -592,54 +684,8 @@ export default function UserProfile({
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {profile.posts_count}
-              </div>
-              <div className="text-sm text-gray-500">Posts</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {profile.followers_count}
-              </div>
-              <div className="text-sm text-gray-500">Followers</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {profile.following_count}
-              </div>
-              <div className="text-sm text-gray-500">Following</div>
-            </div>
-            <div className="text-center flex flex-col items-center">
-              <div className="flex items-center space-x-1">
-                <Flame className="h-5 w-5 text-orange-500" />
-                <div className="text-2xl font-bold text-gray-900">
-                  {profile.learning_streak}
-                </div>
-              </div>
-              <div className="text-sm text-gray-500">Day Streak</div>
-            </div>
-            {profile.hireable && (
-              <div className="text-center flex flex-col items-center">
-                <div className="flex items-center space-x-1">
-                  <Briefcase className="h-5 w-5 text-green-500" />
-                  <div className="text-sm font-semibold text-green-600">
-                    Available
-                  </div>
-                </div>
-                <div className="text-sm text-gray-500">For Hire</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Content Tabs */}
-      <div className="max-w-4xl mx-auto px-6 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="posts">Posts</TabsTrigger>
@@ -649,43 +695,58 @@ export default function UserProfile({
           </TabsList>
 
           <TabsContent value="posts" className="mt-6">
-            {posts.length === 0 ? (
+            {postsLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <div className="aspect-square bg-gray-200 animate-pulse" />
+                    <CardContent className="p-4">
+                      <div className="h-4 bg-gray-200 rounded animate-pulse mb-2" />
+                      <div className="h-3 bg-gray-200 rounded animate-pulse mb-2" />
+                      <div className="h-3 bg-gray-200 rounded animate-pulse w-2/3" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : posts.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500">No posts yet</p>
+                <p className="text-muted-foreground">No posts yet</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {posts.map((post) => (
                   <Card
                     key={post.id}
-                    className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+                    className="overflow-hidden hover:shadow-lg transition-all duration-200 cursor-pointer border-0 shadow-md"
                   >
                     {post.media_url && (
-                      <div className="aspect-square bg-gray-100">
+                      <div className="aspect-square bg-muted">
                         {post.media_type === "video" ? (
                           <video
                             src={post.media_url}
                             className="w-full h-full object-cover"
+                            preload="metadata"
                           />
                         ) : (
                           <img
                             src={post.media_url}
                             alt="Post"
                             className="w-full h-full object-cover"
+                            loading="lazy"
                           />
                         )}
                       </div>
                     )}
                     <CardContent className="p-4">
-                      <Badge className="mb-2 bg-gradient-to-r from-purple-600 to-pink-600">
+                      <Badge className="mb-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white">
                         {post.skill_category}
                       </Badge>
                       {post.content && (
-                        <p className="text-sm text-gray-600 line-clamp-2 mb-2">
+                        <p className="text-sm text-foreground line-clamp-2 mb-3">
                           {post.content}
                         </p>
                       )}
-                      <div className="flex items-center justify-between text-xs text-gray-500">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <div className="flex items-center space-x-4">
                           <div className="flex items-center space-x-1">
                             <Heart className="h-3 w-3" />
@@ -712,37 +773,45 @@ export default function UserProfile({
 
           <TabsContent value="liked" className="mt-6">
             <div className="text-center py-12">
-              <p className="text-gray-500">Liked posts feature coming soon</p>
+              <p className="text-muted-foreground">
+                Liked posts feature coming soon
+              </p>
             </div>
           </TabsContent>
 
           <TabsContent value="achievements" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <Card className="border-0 shadow-md">
                 <CardContent className="p-6 text-center">
                   <Award className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-                  <h3 className="font-semibold mb-2">Content Creator</h3>
-                  <p className="text-sm text-gray-600">
+                  <h3 className="font-semibold mb-2 text-foreground">
+                    Content Creator
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
                     Posted {profile.posts_count} times
                   </p>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-0 shadow-md">
                 <CardContent className="p-6 text-center">
                   <Flame className="h-12 w-12 text-orange-500 mx-auto mb-4" />
-                  <h3 className="font-semibold mb-2">Learning Streak</h3>
-                  <p className="text-sm text-gray-600">
+                  <h3 className="font-semibold mb-2 text-foreground">
+                    Learning Streak
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
                     {profile.learning_streak} days in a row
                   </p>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-0 shadow-md">
                 <CardContent className="p-6 text-center">
                   <Users className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-                  <h3 className="font-semibold mb-2">Community Builder</h3>
-                  <p className="text-sm text-gray-600">
+                  <h3 className="font-semibold mb-2 text-foreground">
+                    Community Builder
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
                     {profile.followers_count} followers
                   </p>
                 </CardContent>
@@ -889,21 +958,38 @@ export default function UserProfile({
               )}
 
               {/* References List */}
-              {references.length === 0 ? (
+              {referencesLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[...Array(4)].map((_, i) => (
+                    <Card key={i} className="animate-pulse">
+                      <CardContent className="p-4">
+                        <div className="flex items-start space-x-3">
+                          <div className="w-8 h-8 bg-gray-200 rounded" />
+                          <div className="flex-1">
+                            <div className="h-4 bg-gray-200 rounded mb-2" />
+                            <div className="h-3 bg-gray-200 rounded mb-2" />
+                            <div className="h-3 bg-gray-200 rounded w-1/2" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : references.length === 0 ? (
                 <div className="text-center py-12">
-                  <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">
+                  <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">
                     {currentUserId === userId
                       ? "No references added yet. Add your first reference!"
                       : "No references available"}
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {references.map((reference) => (
                     <Card
                       key={reference.id}
-                      className="hover:shadow-lg transition-shadow"
+                      className="hover:shadow-lg transition-all duration-200 border-0 shadow-md"
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between">
@@ -916,11 +1002,11 @@ export default function UserProfile({
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-900 truncate">
+                              <h4 className="font-semibold text-foreground truncate">
                                 {reference.title}
                               </h4>
                               {reference.description && (
-                                <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                                   {reference.description}
                                 </p>
                               )}
@@ -930,7 +1016,7 @@ export default function UserProfile({
                                     ? "Document"
                                     : "Link"}
                                 </Badge>
-                                <span className="text-xs text-gray-500">
+                                <span className="text-xs text-muted-foreground">
                                   {new Date(
                                     reference.created_at,
                                   ).toLocaleDateString()}

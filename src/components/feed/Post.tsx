@@ -316,7 +316,7 @@ export default function Post({
 
         {/* Skill Category Badge */}
         <div className="absolute top-4 left-4">
-          <Badge className="bg-gradient-to-r from-purple-600 to-pink-600 text-white">
+          <Badge className="bg-gradient-to-r from-purple-600/70 to-pink-600/70 backdrop-blur-sm text-white border-0">
             {post.skill_category}
           </Badge>
         </div>

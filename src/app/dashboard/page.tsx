@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../supabase/server";
 import MainFeed from "@/components/feed/MainFeed";
 import TalentaNavbar from "@/components/TalentaNavbar";
+import Footer from "@/components/footer";
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -15,9 +16,12 @@ export default async function Dashboard() {
   }
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col">
       <TalentaNavbar />
-      <MainFeed />
-    </>
+      <div className="flex-1">
+        <MainFeed />
+      </div>
+      <Footer />
+    </div>
   );
 }

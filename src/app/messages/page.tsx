@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../supabase/server";
 import TalentaNavbar from "@/components/TalentaNavbar";
 import ChatInterface from "@/components/chat/ChatInterface";
+import Footer from "@/components/footer";
 
 export default async function MessagesPage() {
   const supabase = await createClient();
@@ -15,9 +16,12 @@ export default async function MessagesPage() {
   }
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col">
       <TalentaNavbar />
-      <ChatInterface />
-    </>
+      <div className="flex-1">
+        <ChatInterface />
+      </div>
+      <Footer />
+    </div>
   );
 }

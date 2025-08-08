@@ -6,8 +6,8 @@ export default function Footer() {
 
   return (
     <footer className="bg-gray-50 border-t border-gray-100">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+      <div className="container mx-auto px-4 py-8 sm:py-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8 mb-8 sm:mb-12">
           {/* Platform Column */}
           <div>
             <h3 className="font-semibold text-gray-900 mb-4">Platform</h3>
@@ -126,12 +126,16 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-gray-200">
-          <div className="text-gray-600 mb-4 md:mb-0">
+        <div className="flex flex-col sm:flex-row justify-between items-center pt-6 sm:pt-8 border-t border-gray-200 space-y-4 sm:space-y-0">
+          <div className="text-gray-600 text-center sm:text-left">
             © {currentYear} Talenta. All rights reserved.
+            <br className="sm:hidden" />
+            <span className="block sm:inline sm:ml-2">
+              Contact: ndegeyafadhiri@gmail.com
+            </span>
           </div>
 
-          <div className="flex space-x-6">
+          <div className="flex space-x-4 sm:space-x-6">
             <a href="#" className="text-gray-400 hover:text-purple-500">
               <span className="sr-only">Twitter</span>
               <Twitter className="h-6 w-6" />

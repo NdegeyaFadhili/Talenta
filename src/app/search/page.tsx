@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../supabase/server";
 import TalentaNavbar from "@/components/TalentaNavbar";
 import SearchContent from "@/components/search/SearchContent";
+import Footer from "@/components/footer";
 
 export default async function SearchPage() {
   const supabase = await createClient();
@@ -15,9 +16,12 @@ export default async function SearchPage() {
   }
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col">
       <TalentaNavbar />
-      <SearchContent />
-    </>
+      <div className="flex-1">
+        <SearchContent />
+      </div>
+      <Footer />
+    </div>
   );
 }
